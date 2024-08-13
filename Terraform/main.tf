@@ -1,22 +1,22 @@
 # Specify the provider and region
 provider "aws" {
-  region = "us-west-2"  # Change to your desired AWS region
+  region = "us-east-1"  # Change to your desired AWS region
 }
 
 # Define the key pair for the instances (replace with your key pair name)
 variable "key_name" {
-  default = "your-key-pair"  # Replace with your actual key pair name
+  default = "devops-prac"  # Replace with your actual key pair name
 }
 
 # Define the existing security group (replace with your actual security group ID)
 variable "security_group_id" {
-  default = "sg-0123456789abcdef0"  # Replace with your existing security group ID
+  default = "sg-0d20b3841a0de70a2"  # Replace with your existing security group ID
 }
 
 # Define the EC2 instances
 resource "aws_instance" "sonarqube" {
-  ami           = "ami-0c55b159cbfafe1f0"  # Replace with your desired AMI ID
-  instance_type = "t2.micro"  # Change as needed
+  ami           = "ami-04a81a99f5ec58529"  # Replace with your desired AMI ID
+  instance_type = "t2.medium"  # Change as needed
   key_name      = var.key_name
   vpc_security_group_ids = [var.security_group_id]
 
@@ -26,8 +26,8 @@ resource "aws_instance" "sonarqube" {
 }
 
 resource "aws_instance" "nexus" {
-  ami           = "ami-0c55b159cbfafe1f0"  # Replace with your desired AMI ID
-  instance_type = "t2.micro"  # Change as needed
+  ami           = "ami-04a81a99f5ec58529"  # Replace with your desired AMI ID
+  instance_type = "t2.medium"  # Change as needed
   key_name      = var.key_name
   vpc_security_group_ids = [var.security_group_id]
 
