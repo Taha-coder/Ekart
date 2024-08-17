@@ -13,13 +13,17 @@ data "aws_subnets" "default" {
   }
 }
 
-data "aws_ami" "eks_worker" {
-  most_recent = true
-  owners      = ["amazon"]
+data "aws_availability_zones" "available" {}
 
-  filter {
-    name   = "image-id"
-    values = ["ami-04a81a99f5ec58529"]
+resource "aws_eks_cluster" "example" {
+  name     = "example-cluster"
+  role_arn  = aws_iam_role.eks_admin_role.arn
+
+  vpc_config {
+    subnet_ids = [
+      data.aws_subnets.default.ids[0],
+      data.aws_subnets.default.ids[1]
+    ]
   }
 }
 
@@ -43,15 +47,6 @@ resource "aws_iam_role" "eks_admin_role" {
 resource "aws_iam_role_policy_attachment" "eks_admin_policy" {
   role     = aws_iam_role.eks_admin_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-}
-
-resource "aws_eks_cluster" "example" {
-  name     = "example-cluster"
-  role_arn  = aws_iam_role.eks_admin_role.arn
-
-  vpc_config {
-    subnet_ids = data.aws_subnets.default.ids
-  }
 }
 
 resource "aws_launch_template" "eks_launch_template" {
@@ -81,7 +76,10 @@ resource "aws_eks_node_group" "example" {
   cluster_name    = aws_eks_cluster.example.name
   node_group_name = "example-node-group"
   node_role_arn   = aws_iam_role.eks_admin_role.arn
-  subnet_ids      = data.aws_subnets.default.ids
+  subnet_ids      = [
+    data.aws_subnets.default.ids[0],
+    data.aws_subnets.default.ids[1]
+  ]
 
   scaling_config {
     desired_size = 2
