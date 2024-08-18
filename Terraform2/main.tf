@@ -1,73 +1,60 @@
 provider "aws" {
-  region = "us-east-1" # Change this to your desired region
+  region = "us-east-1"
 }
+variable "ssh_key_name" {
+  description = "The name of the SSH key pair to use for instances"
+  type        = string
+  default     = "DevOps"
+}
+resource "aws_vpc" "devopsshack_vpc" {
+  cidr_block = "10.0.0.0/16"
 
-# Create a new VPC
-resource "aws_vpc" "new_vpc" {
-  cidr_block = "10.1.0.0/16" # Adjust CIDR block as needed
-  enable_dns_support = true
-  enable_dns_hostnames = true
   tags = {
-    Name = "eks-vpc"
+    Name = "devopsshack-vpc"
   }
 }
 
-# Create public subnets in different availability zones
-resource "aws_subnet" "subnet_a" {
-  vpc_id                  = aws_vpc.new_vpc.id
-  cidr_block              = "10.1.1.0/24"
-  availability_zone       = "us-east-1a"
+resource "aws_subnet" "devopsshack_subnet" {
+  count = 2
+  vpc_id                  = aws_vpc.devopsshack_vpc.id
+  cidr_block              = cidrsubnet(aws_vpc.devopsshack_vpc.cidr_block, 8, count.index)
+  availability_zone       = element(["us-east-1a", "us-east-1b"], count.index)
   map_public_ip_on_launch = true
+
   tags = {
-    Name = "eks-subnet-a"
+    Name = "devopsshack-subnet-${count.index}"
   }
 }
 
-resource "aws_subnet" "subnet_b" {
-  vpc_id                  = aws_vpc.new_vpc.id
-  cidr_block              = "10.1.2.0/24"
-  availability_zone       = "us-east-1b"
-  map_public_ip_on_launch = true
+resource "aws_internet_gateway" "devopsshack_igw" {
+  vpc_id = aws_vpc.devopsshack_vpc.id
+
   tags = {
-    Name = "eks-subnet-b"
+    Name = "devopsshack-igw"
   }
 }
 
-# Create an internet gateway and attach it to the VPC
-resource "aws_internet_gateway" "igw" {
-  vpc_id = aws_vpc.new_vpc.id
-  tags = {
-    Name = "eks-igw"
-  }
-}
-
-# Create a route table and associate it with the public subnets
-resource "aws_route_table" "public_rt" {
-  vpc_id = aws_vpc.new_vpc.id
+resource "aws_route_table" "devopsshack_route_table" {
+  vpc_id = aws_vpc.devopsshack_vpc.id
 
   route {
     cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.igw.id
+    gateway_id = aws_internet_gateway.devopsshack_igw.id
   }
 
   tags = {
-    Name = "eks-public-rt"
+    Name = "devopsshack-route-table"
   }
 }
 
-resource "aws_route_table_association" "subnet_a" {
-  subnet_id      = aws_subnet.subnet_a.id
-  route_table_id = aws_route_table.public_rt.id
+resource "aws_route_table_association" "a" {
+  count          = 2
+  subnet_id      = aws_subnet.devopsshack_subnet[count.index].id
+  route_table_id = aws_route_table.devopsshack_route_table.id
 }
 
-resource "aws_route_table_association" "subnet_b" {
-  subnet_id      = aws_subnet.subnet_b.id
-  route_table_id = aws_route_table.public_rt.id
-}
-
-# Create a security group for the EKS cluster
-resource "aws_security_group" "eks_sg" {
-  vpc_id = aws_vpc.new_vpc.id
+resource "aws_security_group" "devopsshack_cluster_sg" {
+  vpc_id = aws_vpc.devopsshack_vpc.id
 
   egress {
     from_port   = 0
@@ -76,133 +63,117 @@ resource "aws_security_group" "eks_sg" {
     cidr_blocks = ["0.0.0.0/0"]
   }
 
+  tags = {
+    Name = "devopsshack-cluster-sg"
+  }
+}
+
+resource "aws_security_group" "devopsshack_node_sg" {
+  vpc_id = aws_vpc.devopsshack_vpc.id
+
   ingress {
-    from_port   = 443
-    to_port     = 443
-    protocol    = "tcp"
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
   }
 
   tags = {
-    Name = "eks-sg"
+    Name = "devopsshack-node-sg"
   }
 }
 
-# Create IAM Role for EKS Cluster
-resource "aws_iam_role" "eks_cluster_role" {
-  name = "eks-cluster-role"
+resource "aws_eks_cluster" "devopsshack" {
+  name     = "devopsshack-cluster"
+  role_arn = aws_iam_role.devopsshack_cluster_role.arn
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Action = "sts:AssumeRole",
-        Effect = "Allow",
-        Principal = {
-          Service = "eks.amazonaws.com"
-        }
-      }
-    ]
-  })
+  vpc_config {
+    subnet_ids         = aws_subnet.devopsshack_subnet[*].id
+    security_group_ids = [aws_security_group.devopsshack_cluster_sg.id]
+  }
 }
 
-resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
-  role     = aws_iam_role.eks_cluster_role.name
+resource "aws_eks_node_group" "devopsshack" {
+  cluster_name    = aws_eks_cluster.devopsshack.name
+  node_group_name = "devopsshack-node-group"
+  node_role_arn   = aws_iam_role.devopsshack_node_group_role.arn
+  subnet_ids      = aws_subnet.devopsshack_subnet[*].id
+
+  scaling_config {
+    desired_size = 3
+    max_size     = 3
+    min_size     = 3
+  }
+
+  instance_types = ["t2.medium"]
+
+  remote_access {
+    ec2_ssh_key = var.ssh_key_name
+    source_security_group_ids = [aws_security_group.devopsshack_node_sg.id]
+  }
+}
+
+resource "aws_iam_role" "devopsshack_cluster_role" {
+  name = "devopsshack-cluster-role"
+
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "eks.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
+}
+
+resource "aws_iam_role_policy_attachment" "devopsshack_cluster_role_policy" {
+  role       = aws_iam_role.devopsshack_cluster_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
-# Create IAM Role for EKS Node Group
-resource "aws_iam_role" "eks_node_role" {
-  name = "eks-node-role"
+resource "aws_iam_role" "devopsshack_node_group_role" {
+  name = "devopsshack-node-group-role"
 
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17",
-    Statement = [
-      {
-        Action = "sts:AssumeRole",
-        Effect = "Allow",
-        Principal = {
-          Service = "ec2.amazonaws.com"
-        }
-      }
-    ]
-  })
+  assume_role_policy = <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "ec2.amazonaws.com"
+      },
+      "Action": "sts:AssumeRole"
+    }
+  ]
+}
+EOF
 }
 
-resource "aws_iam_role_policy_attachment" "eks_node_policy" {
-  role     = aws_iam_role.eks_node_role.name
+resource "aws_iam_role_policy_attachment" "devopsshack_node_group_role_policy" {
+  role       = aws_iam_role.devopsshack_node_group_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
 }
 
-resource "aws_iam_role_policy_attachment" "ec2_container_registry_policy" {
-  role     = aws_iam_role.eks_node_role.name
+resource "aws_iam_role_policy_attachment" "devopsshack_node_group_cni_policy" {
+  role       = aws_iam_role.devopsshack_node_group_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
+}
+
+resource "aws_iam_role_policy_attachment" "devopsshack_node_group_registry_policy" {
+  role       = aws_iam_role.devopsshack_node_group_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
-}
-
-# Create EKS Cluster
-resource "aws_eks_cluster" "example" {
-  name     = "example-cluster"
-  role_arn  = aws_iam_role.eks_cluster_role.arn
-
-  vpc_config {
-    subnet_ids = [
-      aws_subnet.subnet_a.id,
-      aws_subnet.subnet_b.id
-    ]
-    security_group_ids = [aws_security_group.eks_sg.id]
-  }
-}
-
-# Create Launch Template for EKS Node Group
-resource "aws_launch_template" "eks_launch_template" {
-  name_prefix   = "eks-launch-template-"
-  image_id       = "ami-04a81a99f5ec58529" # Update with the appropriate AMI for EKS
-  instance_type  = "t2.medium"
-
-  network_interfaces {
-    associate_public_ip_address = true
-    security_groups            = [aws_security_group.eks_sg.id]
-  }
-
-  tag_specifications {
-    resource_type = "instance"
-
-    tags = {
-      Name = "eks-node"
-    }
-  }
-}
-
-# Create EKS Node Group
-resource "aws_eks_node_group" "example" {
-  cluster_name    = aws_eks_cluster.example.name
-  node_group_name = "example-node-group"
-  node_role_arn   = aws_iam_role.eks_node_role.arn
-  subnet_ids      = [
-    aws_subnet.subnet_a.id,
-    aws_subnet.subnet_b.id
-  ]
-
-  scaling_config {
-    desired_size = 2
-    max_size     = 2
-    min_size     = 1
-  }
-
-  launch_template {
-    id      = aws_launch_template.eks_launch_template.id
-    version = "$Latest"
-  }
-
-  depends_on = [
-    aws_eks_cluster.example
-  ]
-}
-
-output "cluster_endpoint" {
-  value = aws_eks_cluster.example.endpoint
-}
-
-output "cluster_certificate_authority_data" {
-  value = aws_eks_cluster.example.certificate_authority[0].data
 }
