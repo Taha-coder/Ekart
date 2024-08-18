@@ -13,8 +13,8 @@ data "aws_vpc" "default" {
   default = true
 }
 
-# Reference the default subnets in the default VPC
-data "aws_subnets" "default" {
+# Reference the subnet IDs in the default VPC
+data "aws_subnet_ids" "default" {
   vpc_id = data.aws_vpc.default.id
 }
 
@@ -63,7 +63,7 @@ resource "aws_eks_cluster" "devopsshack" {
   role_arn = aws_iam_role.devopsshack_cluster_role.arn
 
   vpc_config {
-    subnet_ids         = data.aws_subnets.default.ids
+    subnet_ids         = data.aws_subnet_ids.default.ids
     security_group_ids = [aws_security_group.devopsshack_cluster_sg.id]
   }
 }
@@ -73,7 +73,7 @@ resource "aws_eks_node_group" "devopsshack" {
   cluster_name    = aws_eks_cluster.devopsshack.name
   node_group_name = "devopsshack-node-group"
   node_role_arn   = aws_iam_role.devopsshack_node_group_role.arn
-  subnet_ids      = data.aws_subnets.default.ids
+  subnet_ids      = data.aws_subnet_ids.default.ids
 
   scaling_config {
     desired_size = 2
@@ -165,5 +165,5 @@ output "vpc_id" {
 }
 
 output "subnet_ids" {
-  value = data.aws_subnets.default.ids
+  value = data.aws_subnet_ids.default.ids
 }
