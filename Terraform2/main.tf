@@ -177,3 +177,19 @@ resource "aws_iam_role_policy_attachment" "devopsshack_node_group_registry_polic
   role       = aws_iam_role.devopsshack_node_group_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
+
+output "cluster_id" {
+  value = aws_eks_cluster.devopsshack.id
+}
+
+output "node_group_id" {
+  value = aws_eks_node_group.devopsshack.id
+}
+
+output "vpc_id" {
+  value = aws_vpc.devopsshack_vpc.id
+}
+
+output "subnet_ids" {
+  value = aws_subnet.devopsshack_subnet[*].id
+}
