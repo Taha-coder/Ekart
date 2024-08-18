@@ -1,60 +1,26 @@
 provider "aws" {
   region = "us-east-1"
 }
+
 variable "ssh_key_name" {
   description = "The name of the SSH key pair to use for instances"
   type        = string
   default     = "devops-prac"
 }
-resource "aws_vpc" "devopsshack_vpc" {
-  cidr_block = "10.0.0.0/16"
 
-  tags = {
-    Name = "devopsshack-vpc"
-  }
+# Reference the default VPC
+data "aws_vpc" "default" {
+  default = true
 }
 
-resource "aws_subnet" "devopsshack_subnet" {
-  count = 2
-  vpc_id                  = aws_vpc.devopsshack_vpc.id
-  cidr_block              = cidrsubnet(aws_vpc.devopsshack_vpc.cidr_block, 8, count.index)
-  availability_zone       = element(["us-east-1a", "us-east-1b"], count.index)
-  map_public_ip_on_launch = true
-
-  tags = {
-    Name = "devopsshack-subnet-${count.index}"
-  }
+# Reference the default subnets in the default VPC
+data "aws_subnets" "default" {
+  vpc_id = data.aws_vpc.default.id
 }
 
-resource "aws_internet_gateway" "devopsshack_igw" {
-  vpc_id = aws_vpc.devopsshack_vpc.id
-
-  tags = {
-    Name = "devopsshack-igw"
-  }
-}
-
-resource "aws_route_table" "devopsshack_route_table" {
-  vpc_id = aws_vpc.devopsshack_vpc.id
-
-  route {
-    cidr_block = "0.0.0.0/0"
-    gateway_id = aws_internet_gateway.devopsshack_igw.id
-  }
-
-  tags = {
-    Name = "devopsshack-route-table"
-  }
-}
-
-resource "aws_route_table_association" "a" {
-  count          = 2
-  subnet_id      = aws_subnet.devopsshack_subnet[count.index].id
-  route_table_id = aws_route_table.devopsshack_route_table.id
-}
-
+# Security group for EKS cluster
 resource "aws_security_group" "devopsshack_cluster_sg" {
-  vpc_id = aws_vpc.devopsshack_vpc.id
+  vpc_id = data.aws_vpc.default.id
 
   egress {
     from_port   = 0
@@ -68,8 +34,9 @@ resource "aws_security_group" "devopsshack_cluster_sg" {
   }
 }
 
+# Security group for EKS node group
 resource "aws_security_group" "devopsshack_node_sg" {
-  vpc_id = aws_vpc.devopsshack_vpc.id
+  vpc_id = data.aws_vpc.default.id
 
   ingress {
     from_port   = 0
@@ -90,21 +57,23 @@ resource "aws_security_group" "devopsshack_node_sg" {
   }
 }
 
+# EKS cluster
 resource "aws_eks_cluster" "devopsshack" {
   name     = "devopsshack-cluster"
   role_arn = aws_iam_role.devopsshack_cluster_role.arn
 
   vpc_config {
-    subnet_ids         = aws_subnet.devopsshack_subnet[*].id
+    subnet_ids         = data.aws_subnets.default.ids
     security_group_ids = [aws_security_group.devopsshack_cluster_sg.id]
   }
 }
 
+# EKS node group
 resource "aws_eks_node_group" "devopsshack" {
   cluster_name    = aws_eks_cluster.devopsshack.name
   node_group_name = "devopsshack-node-group"
   node_role_arn   = aws_iam_role.devopsshack_node_group_role.arn
-  subnet_ids      = aws_subnet.devopsshack_subnet[*].id
+  subnet_ids      = data.aws_subnets.default.ids
 
   scaling_config {
     desired_size = 2
@@ -120,6 +89,7 @@ resource "aws_eks_node_group" "devopsshack" {
   }
 }
 
+# IAM role for EKS cluster
 resource "aws_iam_role" "devopsshack_cluster_role" {
   name = "devopsshack-cluster-role"
 
@@ -139,11 +109,13 @@ resource "aws_iam_role" "devopsshack_cluster_role" {
 EOF
 }
 
+# Attach policies to the EKS cluster IAM role
 resource "aws_iam_role_policy_attachment" "devopsshack_cluster_role_policy" {
   role       = aws_iam_role.devopsshack_cluster_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
 }
 
+# IAM role for EKS node group
 resource "aws_iam_role" "devopsshack_node_group_role" {
   name = "devopsshack-node-group-role"
 
@@ -163,6 +135,7 @@ resource "aws_iam_role" "devopsshack_node_group_role" {
 EOF
 }
 
+# Attach policies to the EKS node group IAM role
 resource "aws_iam_role_policy_attachment" "devopsshack_node_group_role_policy" {
   role       = aws_iam_role.devopsshack_node_group_role.name
   policy_arn = "arn:aws:iam::aws:policy/AmazonEKSWorkerNodePolicy"
@@ -178,6 +151,7 @@ resource "aws_iam_role_policy_attachment" "devopsshack_node_group_registry_polic
   policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
 }
 
+# Outputs
 output "cluster_id" {
   value = aws_eks_cluster.devopsshack.id
 }
@@ -187,9 +161,9 @@ output "node_group_id" {
 }
 
 output "vpc_id" {
-  value = aws_vpc.devopsshack_vpc.id
+  value = data.aws_vpc.default.id
 }
 
 output "subnet_ids" {
-  value = aws_subnet.devopsshack_subnet[*].id
+  value = data.aws_subnets.default.ids
 }
