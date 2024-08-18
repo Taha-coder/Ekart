@@ -19,7 +19,7 @@ data "aws_subnet" "default_subnet1" {
 }
 
 data "aws_subnet" "default_subnet2" {
-  id = "subnet-0413c3ed409e3018d"  # Replace with actual subnet ID
+  id = "subnet-0133a988ea98a65b0"  # Replace with actual subnet ID
 }
 
 # Security group for EKS cluster
